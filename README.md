@@ -23,16 +23,26 @@ The screen downloads `ota/hfs_43.bin` from this repository and writes it by itse
 
 **No GitHub / no Wi-Fi update:** copy the 4.3 inch firmware onto a FAT32 microSD card, name it `HFS.BIN`, put the card in the scope, then **SETUP → ABOUT → FROM SD**. Do not unplug while it writes.
 
-If CHECK says the version file is not on GitHub, no 4.3 inch update has been published yet.
+The published version is 3.63.
 
-## Files the screen uses
+## Files
 
 | File | What it is |
 | --- | --- |
-| `ota/version_43.txt` | One line, the latest version number (example `3.63`) |
+| `ota/version_43.txt` | One line, the latest version number (`3.63`) |
 | `ota/hfs_43.bin` | The 4.3 inch firmware image the chip flashes |
+| `Home Field Scope 4.3 inch User Manual.pdf` | The buyer manual |
+| `sketch/Final_3.5/Final_3.5.ino` | The sketch |
+| `sketch/Final_3.5/iss_world.h` | ISS earth picture used by the sketch |
+| `sketch/Final_3.5/XPT2046_Touchscreen.h` | Touch header. The `.cpp` sits beside it |
+| `libraries/ArduinoJson` | ArduinoJson 7.4.2 used to build this bin |
+| `libraries/GFX_Library_for_Arduino` | GFX library used to build this bin. Cache flag stays false |
+| `libraries/TJpg_Decoder` | JPEG decoder used for the map |
+| `libraries/XPT2046_Touchscreen` | Touch library |
 
-Those two files must stay on branch `main` under `ota/`.
+`ota/version_43.txt` and `ota/hfs_43.bin` must stay on branch `main` under `ota/`.
+
+Wi-Fi, HTTP, SD, and SPI come with the esp32 board package. They are not in `libraries/`.
 
 ## Publish a new version (shop)
 
