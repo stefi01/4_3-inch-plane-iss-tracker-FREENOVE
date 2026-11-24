@@ -1,4 +1,4 @@
-/*
+ /*
   ISS SUN ADDED 22 Sep 2026 3:16 PM — live NTP sun + curved night on ISS.
   Home Field Scope — Freenove FNK0115B, 4.3 inch TN, 480x272.
   Pages are laid out on this glass.
@@ -5947,6 +5947,171 @@ bool bumpZoom(int dir) {
 
 void showPage(int pg) { openPage(pg); }
 
+struct TouchCal {
+  uint16_t x0, x1, y0, y1, flags;
+  bool valid;
+} touchCal = {1, 1, 1, 1, 0, false};
+
+void touchBusIdle() {
+  pinMode(SD_CS, OUTPUT);
+  digitalWrite(SD_CS, HIGH);
+  pinMode(TOUCH_CS, OUTPUT);
+  digitalWrite(TOUCH_CS, HIGH);
+}
+
+bool readCalRaw(int *rx, int *ry) {
+  touchBusIdle();
+  if (!ts.touched()) return false;
+  TS_Point a = ts.getPoint();
+  delay(4);
+  if (!ts.touched()) return false;
+  TS_Point b = ts.getPoint();
+  if (abs(a.x - b.x) > 80 || abs(a.y - b.y) > 80) return false;
+  if (a.x < 15 || a.y < 15 || a.x > 4090 || a.y > 4090) return false;
+  *rx = ((int)a.x + (int)b.x) / 2;
+  *ry = ((int)a.y + (int)b.y) / 2;
+  return true;
+}
+
+bool mapRawToScreen(int rx, int ry, int *sx, int *sy) {
+  if (!touchCal.valid || !touchCal.x1 || !touchCal.y1) return false;
+  int xx, yy;
+  if (touchCal.flags & 1) {
+    xx = (ry - (int)touchCal.x0) * PW / (int)touchCal.x1;
+    yy = (rx - (int)touchCal.y0) * PH / (int)touchCal.y1;
+  } else {
+    xx = (rx - (int)touchCal.x0) * PW / (int)touchCal.x1;
+    yy = (ry - (int)touchCal.y0) * PH / (int)touchCal.y1;
+  }
+  if (touchCal.flags & 2) xx = PW - xx;
+  if (touchCal.flags & 4) yy = PH - yy;
+  if (xx < 0) xx = 0;
+  if (yy < 0) yy = 0;
+  if (xx > PW - 1) xx = PW - 1;
+  if (yy > PH - 1) yy = PH - 1;
+  *sx = xx;
+  *sy = yy;
+  return true;
+}
+
+bool loadTouchCal() {
+  prefs.begin("xptcal", true);
+  bool ok = prefs.getBytesLength("e43") == sizeof(touchCal);
+  if (ok) prefs.getBytes("e43", &touchCal, sizeof(touchCal));
+  prefs.end();
+  return ok && touchCal.valid && touchCal.x1 > 400 && touchCal.y1 > 400;
+}
+
+void saveTouchCal() {
+  touchCal.valid = true;
+  prefs.begin("xptcal", false);
+  prefs.putBytes("e43", &touchCal, sizeof(touchCal));
+  prefs.end();
+}
+
+void drawCornerArrow(int which) {
+  const int s = 70;
+  gfx->fillScreen(COL_BG);
+  gfx->setTextColor(COL_TXT, COL_BG);
+  gfx->setTextSize(2);
+  char step[20];
+  snprintf(step, sizeof(step), "CORNER %d OF 4", which + 1);
+  centre(step, PW / 2, PH / 2 - 28);
+  centre("HOLD THE TIP", PW / 2, PH / 2 + 8);
+  int x0 = 0, y0 = 0, x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+  if (which == 0) {
+    x0 = 0;
+    y0 = 0;
+    x1 = s;
+    y1 = 0;
+    x2 = 0;
+    y2 = s;
+  } else if (which == 1) {
+    x0 = 0;
+    y0 = PH - 1;
+    x1 = s;
+    y1 = PH - 1;
+    x2 = 0;
+    y2 = PH - 1 - s;
+  } else if (which == 2) {
+    x0 = PW - 1;
+    y0 = 0;
+    x1 = PW - 1 - s;
+    y1 = 0;
+    x2 = PW - 1;
+    y2 = s;
+  } else {
+    x0 = PW - 1;
+    y0 = PH - 1;
+    x1 = PW - 1 - s;
+    y1 = PH - 1;
+    x2 = PW - 1;
+    y2 = PH - 1 - s;
+  }
+  gfx->fillTriangle(x0, y0, x1, y1, x2, y2, COL_TXT);
+}
+
+bool calibrateTouchScreen() {
+  int values[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+  for (int i = 0; i < 4; i++) {
+    drawCornerArrow(i);
+    delay(300);
+    if (i > 0) {
+      uint32_t up = millis();
+      int ax, ay;
+      while (readCalRaw(&ax, &ay) && millis() - up < 800) delay(15);
+      delay(150);
+    }
+    for (int j = 0; j < 8; j++) {
+      int rx = 0, ry = 0;
+      while (!readCalRaw(&rx, &ry)) delay(4);
+      values[i * 2] += rx;
+      values[i * 2 + 1] += ry;
+    }
+    values[i * 2] /= 8;
+    values[i * 2 + 1] /= 8;
+  }
+  bool rotate = false;
+  int x0, x1, y0, y1;
+  if (abs(values[0] - values[2]) > abs(values[1] - values[3])) {
+    rotate = true;
+    x0 = (values[1] + values[3]) / 2;
+    x1 = (values[5] + values[7]) / 2;
+    y0 = (values[0] + values[4]) / 2;
+    y1 = (values[2] + values[6]) / 2;
+  } else {
+    x0 = (values[0] + values[2]) / 2;
+    x1 = (values[4] + values[6]) / 2;
+    y0 = (values[1] + values[5]) / 2;
+    y1 = (values[3] + values[7]) / 2;
+  }
+  bool invx = false, invy = false;
+  if (x0 > x1) {
+    int t = x0;
+    x0 = x1;
+    x1 = t;
+    invx = true;
+  }
+  if (y0 > y1) {
+    int t = y0;
+    y0 = y1;
+    y1 = t;
+    invy = true;
+  }
+  x1 -= x0;
+  y1 -= y0;
+  if (x1 < 800 || y1 < 800) return false;
+  if (x0 <= 0) x0 = 1;
+  if (y0 <= 0) y0 = 1;
+  touchCal.x0 = (uint16_t)x0;
+  touchCal.x1 = (uint16_t)x1;
+  touchCal.y0 = (uint16_t)y0;
+  touchCal.y1 = (uint16_t)y1;
+  touchCal.flags = (rotate ? 1 : 0) | (invx ? 2 : 0) | (invy ? 4 : 0);
+  saveTouchCal();
+  return true;
+}
+
 int readTouch(int *xs, int *ys, int maxN) {
   if (maxN < 1 || !ts.touched()) return 0;
   TS_Point a = ts.getPoint();
@@ -6190,6 +6355,7 @@ void setup() {
   }
   if (!screenGapAfter) screenGapAfter = (uint8_t *)psAlloc(1024);
   gfx->setTextWrap(false);
+  cols();
 
   httpLockInit();
   initSd();
